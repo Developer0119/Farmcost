@@ -1,0 +1,6 @@
+{
+  "name": "FarmCost AI",
+  "description": "Offline-first farmer expense management and agricultural profitability platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
