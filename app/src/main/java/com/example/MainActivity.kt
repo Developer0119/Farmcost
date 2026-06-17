@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1113,6 +1114,11 @@ fun LedgerScreen(
                                 }
                                 items(filteredWorkers) { worker ->
                                     var confirmDelete by remember { mutableStateOf(false) }
+                                    var isExpanded by remember { mutableStateOf(false) }
+                                    var showAddDirectWage by remember { mutableStateOf(false) }
+                                    var directWageValue by remember { mutableStateOf("300") }
+                                    var directWagePaid by remember { mutableStateOf(true) }
+
                                     // Summarize worker's total wages paid vs unpaid from the attendance
                                     val workerAttendances = attendance.filter { it.workerId == worker.id }
                                     val totalEarned = workerAttendances.sumOf { it.wage }
@@ -1120,7 +1126,9 @@ fun LedgerScreen(
                                     val unpaidBalance = totalEarned - totalPaid
 
                                     Card(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { isExpanded = !isExpanded },
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                                     ) {
                                         Column(modifier = Modifier.padding(12.dp)) {
@@ -1129,8 +1137,17 @@ fun LedgerScreen(
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Column {
-                                                    Text(text = "👨‍🌾 ${worker.name}", fontWeight = FontWeight.Bold)
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(text = "👨‍🌾 ${worker.name}", fontWeight = FontWeight.Bold)
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Icon(
+                                                            imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                                            contentDescription = "Toggle Expand",
+                                                            tint = Color.Gray,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
                                                     Text(text = "📞 ${worker.mobileNumber} | Work: ${worker.workType}", fontSize = 12.sp, color = Color.Gray)
                                                 }
                                                 if (confirmDelete) {
@@ -1157,6 +1174,125 @@ fun LedgerScreen(
                                                     fontWeight = FontWeight.Bold,
                                                     color = if (unpaidBalance > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
                                                 )
+                                            }
+
+                                            if (isExpanded) {
+                                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = Color.LightGray.copy(alpha = 0.5f))
+                                                
+                                                Text(text = "Attendance & Wage Logs:", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                                
+                                                if (workerAttendances.isEmpty()) {
+                                                    Text(text = "No records logged yet.", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp))
+                                                } else {
+                                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+                                                        workerAttendances.forEach { att ->
+                                                            val dateFormat = SimpleDateFormat("dd-MMM-yyyy", Locale.getDefault()).format(Date(att.date))
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                                                    .padding(6.dp),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Column {
+                                                                    Text(text = dateFormat, fontSize = 10.sp, color = Color.DarkGray)
+                                                                    Text(text = "Wage: $currency ${"%,.0f".format(att.wage)}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                }
+                                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                    SuggestionChip(
+                                                                        onClick = {
+                                                                            viewModel.updateAttendance(att.copy(paidStatus = !att.paidStatus))
+                                                                        },
+                                                                        label = {
+                                                                            Text(
+                                                                                text = if (att.paidStatus) "Paid" else "Unpaid",
+                                                                                fontSize = 9.sp,
+                                                                                fontWeight = FontWeight.Bold
+                                                                            )
+                                                                        },
+                                                                        colors = SuggestionChipDefaults.suggestionChipColors(
+                                                                            containerColor = if (att.paidStatus) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                                                            labelColor = if (att.paidStatus) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                                                        ),
+                                                                        border = null
+                                                                    )
+                                                                    
+                                                                    IconButton(
+                                                                        onClick = { viewModel.deleteAttendance(att.id) },
+                                                                        modifier = Modifier.size(24.dp)
+                                                                    ) {
+                                                                        Icon(Icons.Filled.Delete, contentDescription = "Delete Attendance Record", tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                Spacer(modifier = Modifier.height(4.dp))
+
+                                                if (showAddDirectWage) {
+                                                    Card(
+                                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                                    ) {
+                                                        Column(modifier = Modifier.padding(8.dp)) {
+                                                            Text("Quick Log Attendance", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                            ) {
+                                                                OutlinedTextField(
+                                                                    value = directWageValue,
+                                                                    onValueChange = { directWageValue = it },
+                                                                    label = { Text("Wage", fontSize = 9.sp) },
+                                                                    modifier = Modifier.weight(1f),
+                                                                    singleLine = true,
+                                                                    textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
+                                                                )
+                                                                Row(
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    modifier = Modifier.clickable { directWagePaid = !directWagePaid }
+                                                                ) {
+                                                                    Checkbox(checked = directWagePaid, onCheckedChange = { directWagePaid = it })
+                                                                    Text("Paid", fontSize = 11.sp)
+                                                                }
+                                                            }
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.End,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                TextButton(onClick = { showAddDirectWage = false }) {
+                                                                    Text("Cancel", fontSize = 11.sp)
+                                                                }
+                                                                Spacer(modifier = Modifier.width(4.dp))
+                                                                Button(
+                                                                    onClick = {
+                                                                        val wageD = directWageValue.toDoubleOrNull() ?: 300.0
+                                                                        viewModel.addAttendance(System.currentTimeMillis(), worker.id, wageD, directWagePaid)
+                                                                        showAddDirectWage = false
+                                                                    }
+                                                                ) {
+                                                                    Text("Save", fontSize = 11.sp)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    OutlinedButton(
+                                                        onClick = { showAddDirectWage = true },
+                                                        modifier = Modifier.fillMaxWidth().height(36.dp)
+                                                    ) {
+                                                        Icon(Icons.Filled.Add, contentDescription = "Quick Add", modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Quick Log Attendance / Wage", fontSize = 11.sp)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1460,11 +1596,6 @@ fun ReportsScreen(
                 Tab(
                     selected = reportTab == 3,
                     onClick = { reportTab = 3 },
-                    text = { Text(label("AI Advisor", "AI सलाहकार", "AI सल्लागार"), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-                )
-                Tab(
-                    selected = reportTab == 4,
-                    onClick = { reportTab = 4 },
                     text = { Text(label("Export Center", "निर्यात केंद्र", "निर्यात केंद्र"), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 )
             }
@@ -1565,83 +1696,11 @@ fun ReportsScreen(
                 }
             }
             3 -> {
-                // Gemini AI Advisor Card & Balance Canvas Slice Chart
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                        elevation = CardDefaults.cardElevation(4.dp),
-                        modifier = Modifier.testTag("gemini_advisor_card")
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Filled.AutoAwesome,
-                                    contentDescription = "AI",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = t("ai_advisor"),
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 17.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = label(
-                                    "FarmCost AI runs a secure built-in Local AI & Budget Analyzer matching your localized fertilizer logs, crop varieties, and ledger sheets to calculate structural crop risk and predict profit margins 100% offline.",
-                                    "फार्मकॉस्ट AI पूरी तरह से ऑफ़लाइन और सुरक्षित स्थानीय AI बजट विश्लेषक चलाता है जो आपके खाद लॉग, फसल किस्मों और बहीखाता विवरणों का विश्लेषण करके शुद्ध मुनाफे और फसलों के जोखिम की भविष्यवाणी करता है।",
-                                    "फार्मकॉस्ट AI पूर्णतः ऑफलाइन आणि सुरक्षित स्थानिक AI आणि बजट विश्लेषक चालवते जे आपल्या खत लॉग, पीक प्रकार आणि खातेवहीचे विश्लेषण करून निव्वळ नफ्याची आणि पिकांच्या जोखमीचा अंदाज लावते."
-                                ),
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            if (isAiLoading) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = t("ai_analyzing"), fontSize = 12.sp, color = Color.Gray)
-                                }
-                            } else if (aiAdvice.isNotEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.background)
-                                        .padding(12.dp)
-                                        .verticalScroll(rememberScrollState())
-                                        .heightIn(max = 240.dp)
-                                ) {
-                                    Text(text = aiAdvice, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Button(
-                                onClick = { viewModel.askGeminiAdvisor() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("btn_ask_ai_advisor")
-                            ) {
-                                Icon(Icons.Filled.AutoAwesome, contentDescription = "Query")
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(t("ask_ai"))
-                            }
-                        }
-                    }
-                }
-
+                // Ledger Slices Share (Canvas Chart)
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(text = "📊 Ledger Slices Share (Canvas Chart)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -1705,8 +1764,7 @@ fun ReportsScreen(
                         }
                     }
                 }
-            }
-            4 -> {
+
                 // Offline Export & Share Center Card Block
                 item {
                     val userProfileState by viewModel.user.collectAsStateWithLifecycle()

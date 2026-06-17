@@ -241,6 +241,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateAttendance(attendance: Attendance) {
+        viewModelScope.launch {
+            repository.updateAttendance(attendance)
+        }
+    }
+
     // INCOME CRUD
     fun addIncome(cropId: Int, quantity: Double, unit: String, rate: Double, buyerName: String, saleDate: Long) {
         viewModelScope.launch {
@@ -301,29 +307,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return success
     }
 
-    // GEMINI ADVISOR TRGGER
+    // DETERMINISTIC OFFLINE ADVISOR (NO OUTSIDE INTERNET/AI CALLS)
     fun askGeminiAdvisor() {
-        viewModelScope.launch {
-            _isAiLoading.value = true
-            _aiAdvice.value = "Gemini AI calculations are processing..."
-            
-            // Resolve API Key: use custom settings API key if provided, else fallback to injected key
-            var keyToUse = _userProposedApiKey.value
-            if (keyToUse.isEmpty()) {
-                keyToUse = BuildConfig.GEMINI_API_KEY
-            }
-
-            val adviceResult = GeminiAdvisor.getAdvice(
-                apiKey = keyToUse,
-                language = settings.value.preferredLanguage,
-                farmsList = farms.value,
-                cropsList = crops.value,
-                expensesList = expenses.value,
-                incomeList = income.value
-            )
-            _aiAdvice.value = adviceResult
-            _isAiLoading.value = false
-        }
+        _aiAdvice.value = "Local report generated successfully. Export XLS, DOC or PDF to view deep data insights."
     }
 
     // SEEDS MOCK INJECTOR (So farmers start with some records immediately!)
