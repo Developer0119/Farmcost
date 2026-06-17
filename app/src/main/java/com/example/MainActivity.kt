@@ -3,6 +3,8 @@ package com.example
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -1402,6 +1404,26 @@ fun ReportsScreen(
     val profit = totalInc - totalExp
 
     val context = LocalContext.current
+    
+    var generatedFile by remember { mutableStateOf<java.io.File?>(null) }
+    var fileMimeType by remember { mutableStateOf("") }
+    var successAlertMessage by remember { mutableStateOf("") }
+
+    val preferredLanguageState by viewModel.settings.collectAsStateWithLifecycle()
+    val currentLang = preferredLanguageState.preferredLanguage
+    
+    fun label(en: String, hi: String, mr: String): String {
+        return when (currentLang) {
+            "hi" -> hi; "mr" -> mr; else -> en
+        }
+    }
+
+    var reportTab by remember { mutableStateOf(0) } // 0 = Farms Ledger, 1 = Crops Ledger, 2 = Budget Simulator, 3 = AI Advisor, 4 = Export Center
+    var searchQuery by remember { mutableStateOf("") }
+    var profitFilter by remember { mutableStateOf("All") } // "All", "Profitable", "Loss-Making"
+    
+    var expandedFarmId by remember { mutableStateOf<Int?>(null) }
+    var expandedCropId by remember { mutableStateOf<Int?>(null) }
 
     LazyColumn(
         modifier = Modifier
@@ -1413,145 +1435,686 @@ fun ReportsScreen(
             Text(text = "📈 " + t("reports"), fontWeight = FontWeight.ExtraBold, fontSize = 21.sp)
         }
 
-        // Gemini AI Card
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                elevation = CardDefaults.cardElevation(4.dp),
-                modifier = Modifier.testTag("gemini_advisor_card")
+            ScrollableTabRow(
+                selectedTabIndex = reportTab,
+                edgePadding = 0.dp,
+                containerColor = Color.Transparent,
+                modifier = Modifier.fillMaxWidth().testTag("reports_tab_row")
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.AutoAwesome,
-                            contentDescription = "AI",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = t("ai_advisor"),
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 17.sp,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
+                Tab(
+                    selected = reportTab == 0,
+                    onClick = { reportTab = 0 },
+                    text = { Text(label("Farms Ledger", "खेत बही", "शेत खातेवही"), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+                Tab(
+                    selected = reportTab == 1,
+                    onClick = { reportTab = 1 },
+                    text = { Text(label("Crops Ledger", "फसल बही", "पीक खातेवही"), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+                Tab(
+                    selected = reportTab == 2,
+                    onClick = { reportTab = 2 },
+                    text = { Text(label("Budget Simulator", "बजट सिम्युलेटर", "बजेट सिम्युलेटर"), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+                Tab(
+                    selected = reportTab == 3,
+                    onClick = { reportTab = 3 },
+                    text = { Text(label("AI Advisor", "AI सलाहकार", "AI सल्लागार"), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+                Tab(
+                    selected = reportTab == 4,
+                    onClick = { reportTab = 4 },
+                    text = { Text(label("Export Center", "निर्यात केंद्र", "निर्यात केंद्र"), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+            }
+        }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "FarmCost AI runs a secure Gemini client matching your localized fertilizer logs, crops varieties, and ledger sheets to calculate structural crop risk.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+        // Ledger Search and Filter Option Row
+        if (reportTab == 0 || reportTab == 1) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text(label("Search...", "खोजें...", "शोधा..."), fontSize = 12.sp) },
+                        modifier = Modifier.weight(1.5f).height(50.dp).testTag("ledger_search_input"),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
                     )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (isAiLoading) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = t("ai_analyzing"), fontSize = 12.sp, color = Color.Gray)
-                        }
-                    } else if (aiAdvice.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.background)
-                                .padding(12.dp)
-                                .verticalScroll(rememberScrollState())
-                                .heightIn(max = 240.dp)
-                        ) {
-                            Text(text = aiAdvice, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground)
+                    
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val filters = listOf("All", "Profitable", "Loss-Making")
+                        filters.forEach { filterOpt ->
+                            val isSelected = profitFilter == filterOpt
+                            val bColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                            val tColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            Surface(
+                                color = bColor,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .clickable { profitFilter = filterOpt }
+                                    .testTag("filter_chip_${filterOpt.lowercase()}")
+                            ) {
+                                Text(
+                                    text = when(filterOpt) {
+                                        "Profitable" -> label("Profit", "लाभ", "नफा")
+                                        "Loss-Making" -> label("Loss", "हानि", "तोटा")
+                                        else -> label("All", "सभी", "सर्व")
+                                    },
+                                    fontSize = 11.sp,
+                                    color = tColor,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
                         }
                     }
+                }
+            }
+        }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+        // Selected Tab Content Renderers
+        when (reportTab) {
+            0 -> {
+                item {
+                    FarmsLedgerSection(
+                        farms = farms,
+                        crops = crops,
+                        expenses = expenses,
+                        income = income,
+                        searchQuery = searchQuery,
+                        profitFilter = profitFilter,
+                        currency = currency,
+                        currentLang = currentLang,
+                        expandedFarmId = expandedFarmId,
+                        onExpandFarm = { expandedFarmId = it }
+                    )
+                }
+            }
+            1 -> {
+                item {
+                    CropsLedgerSection(
+                        crops = crops,
+                        farms = farms,
+                        expenses = expenses,
+                        income = income,
+                        searchQuery = searchQuery,
+                        profitFilter = profitFilter,
+                        currency = currency,
+                        currentLang = currentLang,
+                        expandedCropId = expandedCropId,
+                        onExpandCrop = { expandedCropId = it }
+                    )
+                }
+            }
+            2 -> {
+                item {
+                    BudgetSimulatorSection(
+                        totalExp = totalExp,
+                        profit = profit,
+                        currency = currency,
+                        currentLang = currentLang
+                    )
+                }
+            }
+            3 -> {
+                // Gemini AI Advisor Card & Balance Canvas Slice Chart
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                        elevation = CardDefaults.cardElevation(4.dp),
+                        modifier = Modifier.testTag("gemini_advisor_card")
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.AutoAwesome,
+                                    contentDescription = "AI",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = t("ai_advisor"),
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 17.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
 
-                    Button(
-                        onClick = { viewModel.askGeminiAdvisor() },
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = label(
+                                    "FarmCost AI runs a secure built-in Local AI & Budget Analyzer matching your localized fertilizer logs, crop varieties, and ledger sheets to calculate structural crop risk and predict profit margins 100% offline.",
+                                    "फार्मकॉस्ट AI पूरी तरह से ऑफ़लाइन और सुरक्षित स्थानीय AI बजट विश्लेषक चलाता है जो आपके खाद लॉग, फसल किस्मों और बहीखाता विवरणों का विश्लेषण करके शुद्ध मुनाफे और फसलों के जोखिम की भविष्यवाणी करता है।",
+                                    "फार्मकॉस्ट AI पूर्णतः ऑफलाइन आणि सुरक्षित स्थानिक AI आणि बजट विश्लेषक चालवते जे आपल्या खत लॉग, पीक प्रकार आणि खातेवहीचे विश्लेषण करून निव्वळ नफ्याची आणि पिकांच्या जोखमीचा अंदाज लावते."
+                                ),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            if (isAiLoading) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = t("ai_analyzing"), fontSize = 12.sp, color = Color.Gray)
+                                }
+                            } else if (aiAdvice.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.background)
+                                        .padding(12.dp)
+                                        .verticalScroll(rememberScrollState())
+                                        .heightIn(max = 240.dp)
+                                ) {
+                                    Text(text = aiAdvice, fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Button(
+                                onClick = { viewModel.askGeminiAdvisor() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_ask_ai_advisor")
+                            ) {
+                                Icon(Icons.Filled.AutoAwesome, contentDescription = "Query")
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(t("ask_ai"))
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(text = "📊 Ledger Slices Share (Canvas Chart)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            if (expenses.isEmpty()) {
+                                Text(
+                                    text = t("empty_state"),
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp)
+                                )
+                            } else {
+                                val seedSum = expenses.filter { it.category == "Seeds" }.sumOf { it.amount }
+                                val fertilizerSum = expenses.filter { it.category == "Fertilizers" }.sumOf { it.amount }
+                                val chemicalSum = expenses.filter { it.category == "Pesticides" }.sumOf { it.amount }
+                                val laborSum = expenses.filter { it.category == "Labor" }.sumOf { it.amount }
+                                val miscSum = totalExp - (seedSum + fertilizerSum + chemicalSum + laborSum)
+
+                                Canvas(
+                                    modifier = Modifier
+                                        .size(160.dp)
+                                        .align(Alignment.CenterHorizontally)
+                                ) {
+                                    val seedsAngle = if (totalExp > 0) (seedSum / totalExp * 360f).toFloat() else 0f
+                                    val fertAngle = if (totalExp > 0) (fertilizerSum / totalExp * 360f).toFloat() else 0f
+                                    val chemAngle = if (totalExp > 0) (chemicalSum / totalExp * 360f).toFloat() else 0f
+                                    val laborAngle = if (totalExp > 0) (laborSum / totalExp * 360f).toFloat() else 0f
+                                    val miscAngle = 360f - (seedsAngle + fertAngle + chemAngle + laborAngle)
+
+                                    var curAngle = 0f
+
+                                    drawArc(Color(0xFF4CAF50), curAngle, seedsAngle, true)
+                                    curAngle += seedsAngle
+
+                                    drawArc(Color(0xFFFF9800), curAngle, fertAngle, true)
+                                    curAngle += fertAngle
+
+                                    drawArc(Color(0xFFE91E63), curAngle, chemAngle, true)
+                                    curAngle += chemAngle
+
+                                    drawArc(Color(0xFF3F51B5), curAngle, laborAngle, true)
+                                    curAngle += laborAngle
+
+                                    drawArc(Color.Gray, curAngle, miscAngle, true)
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        CategoryTag(name = "Seeds", color = Color(0xFF4CAF50), value = "$currency ${formatAmount(seedSum)}")
+                                        CategoryTag(name = "Fertilizers", color = Color(0xFFFF9800), value = "$currency ${formatAmount(fertilizerSum)}")
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        CategoryTag(name = "Pesticides", color = Color(0xFFE91E63), value = "$currency ${formatAmount(chemicalSum)}")
+                                        CategoryTag(name = "Labor", color = Color(0xFF3F51B5), value = "$currency ${formatAmount(laborSum)}")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            4 -> {
+                // Offline Export & Share Center Card Block
+                item {
+                    val userProfileState by viewModel.user.collectAsStateWithLifecycle()
+                    val workersList by viewModel.workers.collectAsStateWithLifecycle()
+                    val attendanceList by viewModel.attendance.collectAsStateWithLifecycle()
+                    val coroutineScope = rememberCoroutineScope()
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        elevation = CardDefaults.cardElevation(4.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("btn_ask_ai_advisor")
+                            .padding(vertical = 4.dp)
+                            .testTag("export_share_center_card")
                     ) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = "Query")
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(t("ask_ai"))
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.Share,
+                                    contentDescription = "Export Hub",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = label(
+                                        "🌾 Offline Export & Share Center",
+                                        "🌾 डेटा निकालें और साझा करें",
+                                        "🌾 डेटा काढा आणि शेअर करा"
+                                    ),
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = label(
+                                    "Generate professional farm sheets completely offline. Share directly with family, banks, or loan officers.",
+                                    "बैंकों या सलाहकारों के साथ साझा करने के लिए ऑफ़लाइन दस्तावेज बनाएं।",
+                                    "बँक किंवा मित्रांसोबत शेअर करण्यासाठी ऑफलाइन कागदपत्रे तयार करा."
+                                ),
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Excel Export
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                val file = com.example.utils.ExportHelper.exportExcel(
+                                                    context = context,
+                                                    user = userProfileState,
+                                                    farms = farms,
+                                                    crops = crops,
+                                                    expenses = expenses,
+                                                    income = income,
+                                                    workers = workersList,
+                                                    attendance = attendanceList,
+                                                    currency = currency
+                                                )
+                                                if (file != null) {
+                                                    generatedFile = file
+                                                    fileMimeType = "application/vnd.ms-excel"
+                                                    successAlertMessage = label(
+                                                        "Excel workbook report (.xls) structured with active sheets.",
+                                                        "स्थानीय रूप से एक्सेल वर्कबुक रिपोर्ट बनाई गई।",
+                                                        "स्थानिक पातळीवर एक्सेल वर्कबुक रिपोर्ट तयार झाला."
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(56.dp)
+                                            .testTag("btn_export_excel"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.GridOn, contentDescription = "Excel")
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = label("Excel (.xls)", "एक्सेल", "एक्सेल"),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    // Word Export
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                val file = com.example.utils.ExportHelper.exportWord(
+                                                    context = context,
+                                                    user = userProfileState,
+                                                    farms = farms,
+                                                    crops = crops,
+                                                    expenses = expenses,
+                                                    income = income,
+                                                    currency = currency
+                                                )
+                                                if (file != null) {
+                                                    generatedFile = file
+                                                    fileMimeType = "application/msword"
+                                                    successAlertMessage = label(
+                                                        "Word report document (.doc) generated offline with tables.",
+                                                        "वर्ड रिपोर्ट दस्तावेज़ पूरी तरह ऑफ़लाइन तैयार किया गया।",
+                                                        "वर्ड रिपोर्ट दस्तऐवज ऑफलाइन तयार झाला आहे."
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(56.dp)
+                                            .testTag("btn_export_word"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Description, contentDescription = "Word")
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = label("Word (.doc)", "वर्ड", "वर्ड"),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // PDF Export
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                val file = com.example.utils.ExportHelper.exportPdf(
+                                                    context = context,
+                                                    user = userProfileState,
+                                                    farms = farms,
+                                                    crops = crops,
+                                                    expenses = expenses,
+                                                    income = income,
+                                                    currency = currency
+                                                )
+                                                if (file != null) {
+                                                    generatedFile = file
+                                                    fileMimeType = "application/pdf"
+                                                    successAlertMessage = label(
+                                                        "Native graphical PDF report generated successfully.",
+                                                        "प्रिंट करने योग्य पीडीएफ सारांश रिपोर्ट बनाई गई।",
+                                                        "प्रिंट करण्यासाठी पीडीएफ सारांश रिपोर्ट तयार झाला आहे."
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(56.dp)
+                                            .testTag("btn_export_pdf"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.PictureAsPdf, contentDescription = "PDF")
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = label("PDF Report", "पीडीएफ", "पीडीएफ"),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    // CSV Export
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                val file = com.example.utils.ExportHelper.exportCsv(
+                                                    context = context,
+                                                    farms = farms,
+                                                    crops = crops,
+                                                    expenses = expenses,
+                                                    income = income
+                                                )
+                                                if (file != null) {
+                                                    generatedFile = file
+                                                    fileMimeType = "text/csv"
+                                                    successAlertMessage = label(
+                                                        "Tabular values (CSV) prepared for external editors.",
+                                                        "सीएसवी डेटाशीट सफलतापूर्वक तैयार की गई।",
+                                                        "सीएसवी शिट यशस्वीरित्या तयार झाले."
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(56.dp)
+                                            .testTag("btn_export_csv"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.List, contentDescription = "CSV")
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = label("CSV Table", "सीएसवी", "सीएसवी"),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // SQLite DB Backup
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                val file = com.example.utils.ExportHelper.backupSqliteDb(context)
+                                                if (file != null) {
+                                                    generatedFile = file
+                                                    fileMimeType = "application/x-sqlite3"
+                                                    successAlertMessage = label(
+                                                        "SQLite database file backup created.",
+                                                        "एसक्यूलाइट बाइनरी डेटाबेस सुरक्षित रूप से क्लोन किया गया।",
+                                                        "एसक्यूलाइट डेटाबेस यशस्वीरित्या क्लोन झाला आहे."
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(56.dp)
+                                            .testTag("btn_export_db_backup"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Storage, contentDescription = "DB Backup")
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = label("Backup DB", "डेटाबेस बैकअप", "डेटाबेस बॅकअप"),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    // ZIP Package All
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                val jsonString = viewModel.getBackupJson()
+                                                val file = com.example.utils.ExportHelper.exportAllZip(
+                                                    context = context,
+                                                    user = userProfileState,
+                                                    farms = farms,
+                                                    crops = crops,
+                                                    expenses = expenses,
+                                                    income = income,
+                                                    workers = workersList,
+                                                    attendance = attendanceList,
+                                                    jsonBackupString = jsonString,
+                                                    currency = currency
+                                                )
+                                                if (file != null) {
+                                                    generatedFile = file
+                                                    fileMimeType = "application/zip"
+                                                    successAlertMessage = label(
+                                                        "Zipped package of all reports & files constructed.",
+                                                        "सीएसवी, जेसन बैकअप और रिपोर्ट फाइलों की संकुचित ज़िप असेंबली बनाई गई।",
+                                                        "सर्व कागदपत्रे आणि डेटा असलेल्या संकुचित झिप फाईल तयार झाली आहे."
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(56.dp)
+                                            .testTag("btn_export_zip"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Archive, contentDescription = "ZIP Package")
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = label("Pack ZIP", "ज़िप पैकेज", "झिप पॅक करा"),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
 
-        // Financial Canvas Breakdown Drawing
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "📊 Ledger Slices Share (Canvas Chart)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    if (expenses.isEmpty()) {
-                        Text(
-                            text = t("empty_state"),
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(32.dp)
-                        )
-                    } else {
-                        // Custom Canvas pie slice representation of categories
-                        val seedSum = expenses.filter { it.category == "Seeds" }.sumOf { it.amount }
-                        val fertilizerSum = expenses.filter { it.category == "Fertilizers" }.sumOf { it.amount }
-                        val chemicalSum = expenses.filter { it.category == "Pesticides" }.sumOf { it.amount }
-                        val laborSum = expenses.filter { it.category == "Labor" }.sumOf { it.amount }
-                        val miscSum = totalExp - (seedSum + fertilizerSum + chemicalSum + laborSum)
-
-                        Canvas(
-                            modifier = Modifier
-                                .size(160.dp)
-                                .align(Alignment.CenterHorizontally)
-                        ) {
-                            val seedsAngle = if (totalExp > 0) (seedSum / totalExp * 360f).toFloat() else 0f
-                            val fertAngle = if (totalExp > 0) (fertilizerSum / totalExp * 360f).toFloat() else 0f
-                            val chemAngle = if (totalExp > 0) (chemicalSum / totalExp * 360f).toFloat() else 0f
-                            val laborAngle = if (totalExp > 0) (laborSum / totalExp * 360f).toFloat() else 0f
-                            val miscAngle = 360f - (seedsAngle + fertAngle + chemAngle + laborAngle)
-
-                            var curAngle = 0f
-
-                            drawArc(Color(0xFF4CAF50), curAngle, seedsAngle, true)
-                            curAngle += seedsAngle
-
-                            drawArc(Color(0xFFFF9800), curAngle, fertAngle, true)
-                            curAngle += fertAngle
-
-                            drawArc(Color(0xFFE91E63), curAngle, chemAngle, true)
-                            curAngle += chemAngle
-
-                            drawArc(Color(0xFF3F51B5), curAngle, laborAngle, true)
-                            curAngle += laborAngle
-
-                            drawArc(Color.Gray, curAngle, miscAngle, true)
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Category Labels Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                CategoryTag(name = "Seeds", color = Color(0xFF4CAF50), value = "$currency ${formatAmount(seedSum)}")
-                                CategoryTag(name = "Fertilizers", color = Color(0xFFFF9800), value = "$currency ${formatAmount(fertilizerSum)}")
+    if (generatedFile != null) {
+        AlertDialog(
+            onDismissRequest = { generatedFile = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = "Success",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = label(
+                            "Report Generated Successfully",
+                            "रिपोर्ट सफलतापूर्वक तैयार की गई",
+                            "रिपोर्ट यशस्वीरित्या तयार झाला"
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = successAlertMessage,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = label(
+                            "File path: ${generatedFile?.absolutePath}",
+                            "दस्तावेज़ स्थान: ${generatedFile?.absolutePath}",
+                            "फाइल स्थान: ${generatedFile?.absolutePath}"
+                        ),
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Open Button
+                    Button(
+                        onClick = {
+                            val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", generatedFile!!)
+                            val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, fileMimeType)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                CategoryTag(name = "Pesticides", color = Color(0xFFE91E63), value = "$currency ${formatAmount(chemicalSum)}")
-                                CategoryTag(name = "Labor", color = Color(0xFF3F51B5), value = "$currency ${formatAmount(laborSum)}")
+                            try {
+                                context.startActivity(openIntent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "No compatible app found to open this format.", Toast.LENGTH_SHORT).show()
                             }
-                        }
+                            generatedFile = null
+                        },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(label("Open", "खोलें", "उघडा"))
+                    }
+
+                    // Share Button
+                    Button(
+                        onClick = {
+                            val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", generatedFile!!)
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = fileMimeType
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                putExtra(Intent.EXTRA_SUBJECT, "FarmCost Report")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Report via"))
+                            generatedFile = null
+                        },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(label("Share", "साझा करें", "शेअर करा"))
+                    }
+
+                    // Close Button
+                    TextButton(
+                        onClick = { generatedFile = null },
+                        modifier = Modifier.height(44.dp)
+                    ) {
+                        Text(label("Close", "बंद करें", "बंद करा"))
                     }
                 }
             }
-        }
+        )
     }
 }
 
@@ -2266,6 +2829,328 @@ fun ImportBackupDialog(
                     Button(onClick = { onImport(rawText) }) { Text("Restore") }
                 }
             }
+        }
+    }
+}
+
+// ==========================================================
+// REPORTS PREMIUM EXPANDABLE LEDGER HELPER COMPOSABLES
+// ==========================================================
+
+@Composable
+fun FarmsLedgerSection(
+    farms: List<Farm>,
+    crops: List<Crop>,
+    expenses: List<Expense>,
+    income: List<Income>,
+    searchQuery: String,
+    profitFilter: String,
+    currency: String,
+    currentLang: String,
+    expandedFarmId: Int?,
+    onExpandFarm: (Int?) -> Unit
+) {
+    fun label(en: String, hi: String, mr: String): String = when (currentLang) {
+        "hi" -> hi; "mr" -> mr; else -> en
+    }
+    
+    val filtered = remember(farms, crops, expenses, income, searchQuery, profitFilter) {
+        farms.map { farm ->
+            val farmExp = expenses.filter { it.farmId == farm.id }
+            val totExp = farmExp.sumOf { it.amount }
+            val cropIds = crops.filter { it.farmId == farm.id }.map { it.id }.toSet()
+            val totInc = income.filter { it.cropId in cropIds }.sumOf { it.amount }
+            val netProf = totInc - totExp
+            val grouped = farmExp.groupBy { it.category }.mapValues { it.value.sumOf { e -> e.amount } }
+            
+            Triple(farm, netProf, Pair(totExp, Pair(totInc, grouped)))
+        }.filter { (farm, netProf, _) ->
+            val matchesSearch = farm.name.contains(searchQuery, ignoreCase = true) || farm.village.contains(searchQuery, ignoreCase = true)
+            val matchesFilter = when (profitFilter) {
+                "Profitable" -> netProf > 0
+                "Loss-Making" -> netProf < 0
+                else -> true
+            }
+            matchesSearch && matchesFilter
+        }
+    }
+
+    if (filtered.isEmpty()) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        ) {
+            Text(
+                text = label("No farms matching filter.", "कोई खेत नहीं मिला।", "एकही शेत सापडले नाही."),
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                textAlign = TextAlign.Center,
+                color = Color.Gray,
+                fontSize = 13.sp
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            filtered.forEach { (farm, netProf, data) ->
+                val totExp = data.first
+                val totInc = data.second.first
+                val grouped = data.second.second
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (netProf > 0) Color(0xFFE8F5E9) else if (netProf < 0) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        onExpandFarm(if (expandedFarmId == farm.id) null else farm.id)
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = "🏡 " + farm.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.Black)
+                                Text(text = "${farm.area} ${farm.areaUnit} • ${farm.village} • ${farm.soilType}", fontSize = 11.sp, color = Color.DarkGray)
+                            }
+                            
+                            val badgeColor = if (netProf >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            val badgeText = if (netProf > 0) "+$currency %,.0f".format(netProf) else "$currency %,.0f".format(netProf)
+                            Surface(color = badgeColor, shape = RoundedCornerShape(8.dp)) {
+                                Text(text = badgeText, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val ratio = if (totInc + totExp > 0) (totInc / (totInc + totExp)).toFloat() else 0.5f
+                        LinearProgressIndicator(
+                            progress = ratio,
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                            color = Color(0xFF2E7D32),
+                            trackColor = Color(0xFFC62828)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = label("Expense: ", "खर्च: ", "खर्च: ") + currency + " %,.0f".format(totExp), fontSize = 10.sp, color = Color(0xFFC62828))
+                            Text(text = label("Sales: ", "बिक्री: ", "विक्री: ") + currency + " %,.0f".format(totInc), fontSize = 10.sp, color = Color(0xFF2E7D32))
+                        }
+                        
+                        if (expandedFarmId == farm.id) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = label("Variable Costs:", "खर्च की श्रेणियां:", "खर्च वर्गीकरण:"), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Black)
+                            if (grouped.isEmpty()) {
+                                Text(text = label("No costs registered.", "कोई खर्च दर्ज नहीं है।", "कोणताही खर्च नाही."), fontSize = 10.sp, color = Color.Gray)
+                            } else {
+                                grouped.forEach { (cat, amt) ->
+                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(text = "• $cat", fontSize = 11.sp, color = Color.Black)
+                                        Text(text = "$currency %,.0f".format(amt), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CropsLedgerSection(
+    crops: List<Crop>,
+    farms: List<Farm>,
+    expenses: List<Expense>,
+    income: List<Income>,
+    searchQuery: String,
+    profitFilter: String,
+    currency: String,
+    currentLang: String,
+    expandedCropId: Int?,
+    onExpandCrop: (Int?) -> Unit
+) {
+    fun label(en: String, hi: String, mr: String): String = when (currentLang) {
+        "hi" -> hi; "mr" -> mr; else -> en
+    }
+    
+    val filtered = remember(crops, farms, expenses, income, searchQuery, profitFilter) {
+        crops.map { crop ->
+            val cropExp = expenses.filter { it.cropId == crop.id }
+            val totExp = cropExp.sumOf { it.amount }
+            val totInc = income.filter { it.cropId == crop.id }.sumOf { it.amount }
+            val netProf = totInc - totExp
+            val grouped = cropExp.groupBy { it.category }.mapValues { it.value.sumOf { e -> e.amount } }
+            val farmName = farms.find { it.id == crop.farmId }?.name ?: label("Unknown Farm", "अज्ञात खेत", "अज्ञात शेत")
+            
+            Pair(crop, Pair(netProf, Pair(totExp, Pair(totInc, Pair(grouped, farmName)))))
+        }.filter { (crop, data) ->
+            val matchesSearch = crop.name.contains(searchQuery, ignoreCase = true) || crop.variety.contains(searchQuery, ignoreCase = true)
+            val matchesFilter = when (profitFilter) {
+                "Profitable" -> data.first > 0
+                "Loss-Making" -> data.first < 0
+                else -> true
+            }
+            matchesSearch && matchesFilter
+        }
+    }
+
+    if (filtered.isEmpty()) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        ) {
+            Text(
+                text = label("No crops matching filter.", "कोई फसल नहीं मिली।", "एकही पीक सापडले नाही."),
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                textAlign = TextAlign.Center,
+                color = Color.Gray,
+                fontSize = 13.sp
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            filtered.forEach { (crop, data) ->
+                val netProf = data.first
+                val totExp = data.second.first
+                val totInc = data.second.second.first
+                val grouped = data.second.second.second.first
+                val farmName = data.second.second.second.second
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (netProf > 0) Color(0xFFE8F5E9) else if (netProf < 0) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        onExpandCrop(if (expandedCropId == crop.id) null else crop.id)
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = "🌾 " + crop.name + " (${crop.variety})", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.Black)
+                                Text(text = label("Season: ", "सीजन: ", "हंगाम: ") + crop.season + " • " + farmName, fontSize = 11.sp, color = Color.DarkGray)
+                            }
+                            
+                            val badgeColor = if (netProf >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            val badgeText = if (netProf > 0) "+$currency %,.0f".format(netProf) else "$currency %,.0f".format(netProf)
+                            Surface(color = badgeColor, shape = RoundedCornerShape(8.dp)) {
+                                Text(text = badgeText, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val ratio = if (totInc + totExp > 0) (totInc / (totInc + totExp)).toFloat() else 0.5f
+                        LinearProgressIndicator(
+                            progress = ratio,
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                            color = Color(0xFF2E7D32),
+                            trackColor = Color(0xFFC62828)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = label("Expense: ", "खर्च: ", "खर्च: ") + currency + " %,.0f".format(totExp), fontSize = 10.sp, color = Color(0xFFC62828))
+                            Text(text = label("Sales: ", "बिक्री: ", "विक्री: ") + currency + " %,.0f".format(totInc), fontSize = 10.sp, color = Color(0xFF2E7D32))
+                        }
+                        
+                        if (expandedCropId == crop.id) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = label("Variable Costs:", "खर्च की श्रेणियां:", "खर्च वर्गीकरण:"), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.Black)
+                            if (grouped.isEmpty()) {
+                                Text(text = label("No costs registered.", "कोई खर्च दर्ज नहीं है।", "कोणताही खर्च नाही."), fontSize = 10.sp, color = Color.Gray)
+                            } else {
+                                grouped.forEach { (cat, amt) ->
+                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(text = "• $cat", fontSize = 11.sp, color = Color.Black)
+                                        Text(text = "$currency %,.0f".format(amt), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BudgetSimulatorSection(
+    totalExp: Double,
+    profit: Double,
+    currency: String,
+    currentLang: String
+) {
+    fun label(en: String, hi: String, mr: String): String = when (currentLang) {
+        "hi" -> hi; "mr" -> mr; else -> en
+    }
+    
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = Icons.Filled.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = label("On-Device Budget Simulator & Cost Targeter", "इंटरएक्टिव बजट और लागत लक्ष्यक", "ऑफलाइन बजेत आणि खर्च सिम्युलेटर"), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = label(
+                    "Slide to adjust fertilizer micro-dosing and transport sharing to lower production costs. Calculate your projected net profits instantly offline.",
+                    "खाद की खुराक और संयुक्त परिवहन का उपयोग कर लागत घटाने के लिए स्लाइड करें।",
+                    "खत डोस आणि संयुक्त वाहतुकीचा वापर करून उत्पादन खर्च कमी करण्यासाठी स्लाइड करा."
+                ),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            var simPct by remember { mutableStateOf(15f) }
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(text = label("Savings Target:", "लागत कटौती लक्ष्य:", "खर्च कपात उद्दिष्ट:"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(text = "${simPct.toInt()}%", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+            }
+            
+            Slider(value = simPct, onValueChange = { simPct = it.coerceIn(0f, 50f) }, valueRange = 0f..50f, steps = 9, modifier = Modifier.fillMaxWidth())
+            
+            val savings = totalExp * (simPct / 100.0)
+            val projected = profit + savings
+            
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(text = label("Estimated Savings:", "अनुमानित बचत:", "अंदाजित बचत:"), fontSize = 11.sp, color = Color.Black)
+                        Text(text = "$currency %,.0f".format(savings), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(text = label("Projected Net Profit:", "प्रक्षेपित शुद्ध लाभ:", "प्रक्षेपित निव्वळ नफा:"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text(text = "$currency %,.0f".format(projected), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = if (projected >= 0) Color(0xFF2E7D32) else Color(0xFFC62828))
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(6.dp))
+            val tip = when {
+                simPct == 0f -> label("No target reduction selected.", "कोई लक्ष्य नहीं चुना गया।", "कोणतेही उद्दिष्ट निवडलेले नाही.")
+                simPct <= 15f -> label("💡 Simple Target: Group logistics with neighbors to save on transport trip costs.", "💡 सरल लक्ष्य: ईंधन लागत घटाने हेतु संयुक्त परिवहन का उपयोग करें।", "💡 सोपे उद्दिष्ट: वाहतूक खर्चात बचत मिळवण्यासाठी संयुक्त रितीने नियोजन करा.")
+                simPct <= 30f -> label("💡 Smart Target: Apply neem-coated urea and soil-test based fertilizer dosage.", "💡 स्मार्ट लक्ष्य: मिट्टी परीक्षण के अनुसार ही सिमित मात्रा में खाद का उपयोग करें।", "💡 स्मार्ट उद्दिष्ट: माती परीक्षणानुसार केवळ योग्य आणि मर्यादित खतांचा डोस वापरा.")
+                else -> label("💡 Pro Target: Substitute expensive external resources with organic composting and home seeds.", "💡 आक्रामक लक्ष्य: खरपतवार नियंत्रण एवं स्वदेशी बियाणे के इस्तेमाल से कुल लागत आधी करें।", "💡 पीक बदल पद्धत आणि सेंद्रिय खतांच्या वापराद्वारे बाहेरील खर्च पूर्ण वाचवा.")
+            }
+            Text(text = tip, fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f))
         }
     }
 }

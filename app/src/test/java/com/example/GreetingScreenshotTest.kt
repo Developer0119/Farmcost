@@ -11,6 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import androidx.compose.ui.unit.dp
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -21,7 +22,14 @@ class GreetingScreenshotTest {
 
   @Test
   fun greeting_screenshot() {
-    composeTestRule.setContent { MyApplicationTheme { Greeting("Robolectric") } }
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        androidx.compose.foundation.layout.Column {
+          CategoryTag(name = "Seeds Cost", color = androidx.compose.ui.graphics.Color(0xFF4CAF50), value = "INR 12,500")
+          CategoryTag(name = "Fertilizers Cost", color = androidx.compose.ui.graphics.Color(0xFFFF9800), value = "INR 45,000")
+        }
+      }
+    }
 
     composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/greeting.png")
   }
