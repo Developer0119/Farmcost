@@ -9,8 +9,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
-    private val db = AppDatabase.getDatabase(application)
-    private val repository = FarmCostRepository(db)
+    private val repository = FarmCostRepository(application)
 
     // REACTIVE STATEFLOWS FROM ROOM
     val user: StateFlow<User?> = repository.userFlow
@@ -51,9 +50,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAiLoading = MutableStateFlow(false)
     val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
 
-    private val _userProposedApiKey = MutableStateFlow("")
-    val userProposedApiKey: StateFlow<String> = _userProposedApiKey.asStateFlow()
-
     init {
         // Initialize settings with basic values
         viewModelScope.launch {
@@ -67,10 +63,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
-    }
-
-    fun setCustomApiKey(key: String) {
-        _userProposedApiKey.value = key
     }
 
     // PROFILE CRUD

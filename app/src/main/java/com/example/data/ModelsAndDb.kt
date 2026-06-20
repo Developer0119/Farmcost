@@ -1,20 +1,19 @@
 package com.example.data
 
 import android.content.Context
-import androidx.room.*
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 // ==========================================
-// ROOM ENTITIES (TABLES)
+// DATA MODELS (PLAIN DATA CLASSES - NO SQLITE)
 // ==========================================
 
-@Entity(tableName = "users")
 data class User(
-    @PrimaryKey val id: Int = 1, // Singleton profile
+    val id: Int = 1, // Singleton profile
     val fullName: String,
     val mobileNumber: String,
     val village: String,
@@ -24,9 +23,8 @@ data class User(
     val preferredLanguage: String // "en", "hi", "mr"
 )
 
-@Entity(tableName = "farms")
 data class Farm(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val id: Int = 0,
     val name: String,
     val area: Double,
     val areaUnit: String, // "Acre", "Hectare"
@@ -36,9 +34,8 @@ data class Farm(
     val notes: String
 )
 
-@Entity(tableName = "crops")
 data class Crop(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val id: Int = 0,
     val name: String,
     val variety: String,
     val season: String, // "Kharif", "Rabi", "Zaid", "Yearly"
@@ -47,9 +44,8 @@ data class Crop(
     val expectedHarvestDate: Long
 )
 
-@Entity(tableName = "expenses")
 data class Expense(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val id: Int = 0,
     val date: Long,
     val farmId: Int, // Logical Foreign Key
     val cropId: Int, // Logical Foreign Key
@@ -59,26 +55,23 @@ data class Expense(
     val receiptPhotoPath: String? = null
 )
 
-@Entity(tableName = "workers")
 data class Worker(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val id: Int = 0,
     val name: String,
     val mobileNumber: String,
     val workType: String
 )
 
-@Entity(tableName = "attendance")
 data class Attendance(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val id: Int = 0,
     val date: Long,
     val workerId: Int, // Logical Foreign Key
     val wage: Double,
     val paidStatus: Boolean // true = Paid, false = Unpaid
 )
 
-@Entity(tableName = "income")
 data class Income(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val id: Int = 0,
     val cropId: Int, // Logical Foreign Key
     val quantity: Double,
     val unit: String, // "kg", "Ton", "Quintal"
@@ -88,222 +81,608 @@ data class Income(
     val amount: Double // Calculated Quantity * Rate
 )
 
-@Entity(tableName = "settings")
 data class AppSettings(
-    @PrimaryKey val id: Int = 1,
+    val id: Int = 1,
     val preferredLanguage: String = "en",
     val darkMode: Boolean = false,
     val currencySymbol: String = "₹"
 )
 
 // ==========================================
-// DATA ACCESS OBJECTS (DAOs)
+// REPOSITORY IMPLEMENTATION (PHYSICAL FILES)
 // ==========================================
 
-@Dao
-interface UserDao {
-    @Query("SELECT * FROM users WHERE id = 1")
-    fun getUser(): Flow<User?>
+class FarmCostRepository(private val context: Context) {
+    
+    // We will store all files in "Android/data/<package>/files/FarmCost AI"
+    // This organizes separate physical JSON files inside the app's standard directory.
+    private val dataFolder: File by lazy {
+        val folder = File(context.getExternalFilesDir(null), "FarmCost AI")
+        if (!folder.exists()) {
+            folder.mkdirs()
+        }
+        folder
+    }
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertUser(user: User)
+    private val userFile by lazy { File(dataFolder, "user.json") }
+    private val farmsFile by lazy { File(dataFolder, "farms.json") }
+    private val cropsFile by lazy { File(dataFolder, "crops.json") }
+    private val expensesFile by lazy { File(dataFolder, "expenses.json") }
+    private val workersFile by lazy { File(dataFolder, "workers.json") }
+    private val attendanceFile by lazy { File(dataFolder, "attendance.json") }
+    private val incomeFile by lazy { File(dataFolder, "income.json") }
+    private val settingsFile by lazy { File(dataFolder, "settings.json") }
 
-    @Delete
-    suspend fun deleteUser(user: User)
-}
+    private val _userState = MutableStateFlow<User?>(null)
+    val userFlow: Flow<User?> = _userState.asStateFlow()
 
-@Dao
-interface FarmDao {
-    @Query("SELECT * FROM farms ORDER BY id DESC")
-    fun getAllFarms(): Flow<List<Farm>>
+    private val _farmsState = MutableStateFlow<List<Farm>>(emptyList())
+    val farmsFlow: Flow<List<Farm>> = _farmsState.asStateFlow()
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertFarm(farm: Farm)
+    private val _cropsState = MutableStateFlow<List<Crop>>(emptyList())
+    val cropsFlow: Flow<List<Crop>> = _cropsState.asStateFlow()
 
-    @Update
-    suspend fun updateFarm(farm: Farm)
+    private val _expensesState = MutableStateFlow<List<Expense>>(emptyList())
+    val expensesFlow: Flow<List<Expense>> = _expensesState.asStateFlow()
 
-    @Query("DELETE FROM farms WHERE id = :id")
-    suspend fun deleteFarmById(id: Int)
-}
+    private val _workersState = MutableStateFlow<List<Worker>>(emptyList())
+    val workersFlow: Flow<List<Worker>> = _workersState.asStateFlow()
 
-@Dao
-interface CropDao {
-    @Query("SELECT * FROM crops ORDER BY id DESC")
-    fun getAllCrops(): Flow<List<Crop>>
+    private val _attendanceState = MutableStateFlow<List<Attendance>>(emptyList())
+    val attendanceFlow: Flow<List<Attendance>> = _attendanceState.asStateFlow()
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCrop(crop: Crop)
+    private val _incomeState = MutableStateFlow<List<Income>>(emptyList())
+    val incomeFlow: Flow<List<Income>> = _incomeState.asStateFlow()
 
-    @Update
-    suspend fun updateCrop(crop: Crop)
+    private val _settingsState = MutableStateFlow<AppSettings?>(null)
+    val settingsFlow: Flow<AppSettings?> = _settingsState.asStateFlow()
 
-    @Query("DELETE FROM crops WHERE id = :id")
-    suspend fun deleteCropById(id: Int)
-}
+    init {
+        loadUser()
+        loadFarms()
+        loadCrops()
+        loadExpenses()
+        loadWorkers()
+        loadAttendance()
+        loadIncome()
+        loadSettings()
+    }
 
-@Dao
-interface ExpenseDao {
-    @Query("SELECT * FROM expenses ORDER BY date DESC")
-    fun getAllExpenses(): Flow<List<Expense>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertExpense(expense: Expense)
-
-    @Update
-    suspend fun updateExpense(expense: Expense)
-
-    @Query("DELETE FROM expenses WHERE id = :id")
-    suspend fun deleteExpenseById(id: Int)
-}
-
-@Dao
-interface WorkerDao {
-    @Query("SELECT * FROM workers ORDER BY id DESC")
-    fun getAllWorkers(): Flow<List<Worker>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertWorker(worker: Worker)
-
-    @Update
-    suspend fun updateWorker(worker: Worker)
-
-    @Query("DELETE FROM workers WHERE id = :id")
-    suspend fun deleteWorkerById(id: Int)
-}
-
-@Dao
-interface AttendanceDao {
-    @Query("SELECT * FROM attendance ORDER BY date DESC")
-    fun getAllAttendance(): Flow<List<Attendance>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAttendance(attendance: Attendance)
-
-    @Update
-    suspend fun updateAttendance(attendance: Attendance)
-
-    @Query("DELETE FROM attendance WHERE id = :id")
-    suspend fun deleteAttendanceById(id: Int)
-}
-
-@Dao
-interface IncomeDao {
-    @Query("SELECT * FROM income ORDER BY saleDate DESC")
-    fun getAllIncome(): Flow<List<Income>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertIncome(income: Income)
-
-    @Update
-    suspend fun updateIncome(income: Income)
-
-    @Query("DELETE FROM income WHERE id = :id")
-    suspend fun deleteIncomeById(id: Int)
-}
-
-@Dao
-interface SettingsDao {
-    @Query("SELECT * FROM settings WHERE id = 1")
-    fun getSettings(): Flow<AppSettings?>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertSettings(settings: AppSettings)
-}
-
-// ==========================================
-// DATABASE DEF
-// ==========================================
-
-@Database(
-    entities = [
-        User::class, Farm::class, Crop::class, Expense::class,
-        Worker::class, Attendance::class, Income::class, AppSettings::class
-    ],
-    version = 1,
-    exportSchema = false
-)
-abstract class AppDatabase : RoomDatabase() {
-    abstract fun userDao(): UserDao
-    abstract fun farmDao(): FarmDao
-    abstract fun cropDao(): CropDao
-    abstract fun expenseDao(): ExpenseDao
-    abstract fun workerDao(): WorkerDao
-    abstract fun attendanceDao(): AttendanceDao
-    abstract fun incomeDao(): IncomeDao
-    abstract fun settingsDao(): SettingsDao
-
-    companion object {
-        @Volatile
-        private var INSTANCE: AppDatabase? = null
-
-        fun getDatabase(context: Context): AppDatabase {
-            return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "farm_cost_database"
-                )
-                .fallbackToDestructiveMigration()
-                .build()
-                INSTANCE = instance
-                instance
+    private fun loadUser() {
+        try {
+            if (userFile.exists()) {
+                val s = userFile.readText()
+                if (s.isNotBlank()) {
+                    val json = JSONObject(s)
+                    _userState.value = User(
+                        id = json.optInt("id", 1),
+                        fullName = json.optString("fullName"),
+                        mobileNumber = json.optString("mobileNumber"),
+                        village = json.optString("village"),
+                        taluka = json.optString("taluka"),
+                        district = json.optString("district"),
+                        state = json.optString("state"),
+                        preferredLanguage = json.optString("preferredLanguage")
+                    )
+                    return
+                }
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _userState.value = null
+    }
+
+    private fun saveUser(u: User?) {
+        try {
+            _userState.value = u
+            if (u == null) {
+                if (userFile.exists()) userFile.delete()
+            } else {
+                val json = JSONObject().apply {
+                    put("id", u.id)
+                    put("fullName", u.fullName)
+                    put("mobileNumber", u.mobileNumber)
+                    put("village", u.village)
+                    put("taluka", u.taluka)
+                    put("district", u.district)
+                    put("state", u.state)
+                    put("preferredLanguage", u.preferredLanguage)
+                }
+                userFile.writeText(json.toString(4))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
-}
 
-// ==========================================
-// REPOSITORY IMPLEMENTATION
-// ==========================================
+    private fun loadFarms() {
+        val list = mutableListOf<Farm>()
+        try {
+            if (farmsFile.exists()) {
+                val s = farmsFile.readText()
+                if (s.isNotBlank()) {
+                    val arr = JSONArray(s)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            Farm(
+                                id = obj.optInt("id"),
+                                name = obj.optString("name"),
+                                area = obj.optDouble("area"),
+                                areaUnit = obj.optString("areaUnit"),
+                                village = obj.optString("village"),
+                                soilType = obj.optString("soilType"),
+                                irrigationType = obj.optString("irrigationType"),
+                                notes = obj.optString("notes")
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _farmsState.value = list
+    }
 
-class FarmCostRepository(private val db: AppDatabase) {
-    val userFlow: Flow<User?> = db.userDao().getUser()
-    val farmsFlow: Flow<List<Farm>> = db.farmDao().getAllFarms()
-    val cropsFlow: Flow<List<Crop>> = db.cropDao().getAllCrops()
-    val expensesFlow: Flow<List<Expense>> = db.expenseDao().getAllExpenses()
-    val workersFlow: Flow<List<Worker>> = db.workerDao().getAllWorkers()
-    val attendanceFlow: Flow<List<Attendance>> = db.attendanceDao().getAllAttendance()
-    val incomeFlow: Flow<List<Income>> = db.incomeDao().getAllIncome()
-    val settingsFlow: Flow<AppSettings?> = db.settingsDao().getSettings()
+    private fun saveFarms(list: List<Farm>) {
+        try {
+            _farmsState.value = list
+            val arr = JSONArray()
+            for (item in list) {
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("name", item.name)
+                    put("area", item.area)
+                    put("areaUnit", item.areaUnit)
+                    put("village", item.village)
+                    put("soilType", item.soilType)
+                    put("irrigationType", item.irrigationType)
+                    put("notes", item.notes)
+                }
+                arr.put(obj)
+            }
+            farmsFile.writeText(arr.toString(4))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
-    // SUSPEND DB MUTATORS
-    suspend fun insertUser(user: User) = db.userDao().insertUser(user)
-    suspend fun deleteUser(user: User) = db.userDao().deleteUser(user)
+    private fun loadCrops() {
+        val list = mutableListOf<Crop>()
+        try {
+            if (cropsFile.exists()) {
+                val s = cropsFile.readText()
+                if (s.isNotBlank()) {
+                    val arr = JSONArray(s)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            Crop(
+                                id = obj.optInt("id"),
+                                name = obj.optString("name"),
+                                variety = obj.optString("variety"),
+                                season = obj.optString("season"),
+                                farmId = obj.optInt("farmId"),
+                                plantingDate = obj.optLong("plantingDate"),
+                                expectedHarvestDate = obj.optLong("expectedHarvestDate")
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _cropsState.value = list
+    }
 
-    suspend fun insertFarm(farm: Farm) = db.farmDao().insertFarm(farm)
-    suspend fun updateFarm(farm: Farm) = db.farmDao().updateFarm(farm)
-    suspend fun deleteFarm(farmId: Int) = db.farmDao().deleteFarmById(farmId)
+    private fun saveCrops(list: List<Crop>) {
+        try {
+            _cropsState.value = list
+            val arr = JSONArray()
+            for (item in list) {
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("name", item.name)
+                    put("variety", item.variety)
+                    put("season", item.season)
+                    put("farmId", item.farmId)
+                    put("plantingDate", item.plantingDate)
+                    put("expectedHarvestDate", item.expectedHarvestDate)
+                }
+                arr.put(obj)
+            }
+            cropsFile.writeText(arr.toString(4))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
-    suspend fun insertCrop(crop: Crop) = db.cropDao().insertCrop(crop)
-    suspend fun updateCrop(crop: Crop) = db.cropDao().updateCrop(crop)
-    suspend fun deleteCrop(cropId: Int) = db.cropDao().deleteCropById(cropId)
+    private fun loadExpenses() {
+        val list = mutableListOf<Expense>()
+        try {
+            if (expensesFile.exists()) {
+                val s = expensesFile.readText()
+                if (s.isNotBlank()) {
+                    val arr = JSONArray(s)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            Expense(
+                                id = obj.optInt("id"),
+                                date = obj.optLong("date"),
+                                farmId = obj.optInt("farmId"),
+                                cropId = obj.optInt("cropId"),
+                                category = obj.optString("category"),
+                                amount = obj.optDouble("amount"),
+                                notes = obj.optString("notes"),
+                                receiptPhotoPath = if (obj.isNull("receiptPhotoPath") || obj.optString("receiptPhotoPath").isEmpty()) null else obj.optString("receiptPhotoPath")
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _expensesState.value = list
+    }
 
-    suspend fun insertExpense(expense: Expense) = db.expenseDao().insertExpense(expense)
-    suspend fun updateExpense(expense: Expense) = db.expenseDao().updateExpense(expense)
-    suspend fun deleteExpense(expenseId: Int) = db.expenseDao().deleteExpenseById(expenseId)
+    private fun saveExpenses(list: List<Expense>) {
+        try {
+            _expensesState.value = list
+            val arr = JSONArray()
+            for (item in list) {
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("date", item.date)
+                    put("farmId", item.farmId)
+                    put("cropId", item.cropId)
+                    put("category", item.category)
+                    put("amount", item.amount)
+                    put("notes", item.notes)
+                    put("receiptPhotoPath", item.receiptPhotoPath ?: "")
+                }
+                arr.put(obj)
+            }
+            expensesFile.writeText(arr.toString(4))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
-    suspend fun insertWorker(worker: Worker) = db.workerDao().insertWorker(worker)
-    suspend fun updateWorker(worker: Worker) = db.workerDao().updateWorker(worker)
-    suspend fun deleteWorker(workerId: Int) = db.workerDao().deleteWorkerById(workerId)
+    private fun loadWorkers() {
+        val list = mutableListOf<Worker>()
+        try {
+            if (workersFile.exists()) {
+                val s = workersFile.readText()
+                if (s.isNotBlank()) {
+                    val arr = JSONArray(s)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            Worker(
+                                id = obj.optInt("id"),
+                                name = obj.optString("name"),
+                                mobileNumber = obj.optString("mobileNumber"),
+                                workType = obj.optString("workType")
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _workersState.value = list
+    }
 
-    suspend fun insertAttendance(attendance: Attendance) = db.attendanceDao().insertAttendance(attendance)
-    suspend fun updateAttendance(attendance: Attendance) = db.attendanceDao().updateAttendance(attendance)
-    suspend fun deleteAttendance(attendanceId: Int) = db.attendanceDao().deleteAttendanceById(attendanceId)
+    private fun saveWorkers(list: List<Worker>) {
+        try {
+            _workersState.value = list
+            val arr = JSONArray()
+            for (item in list) {
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("name", item.name)
+                    put("mobileNumber", item.mobileNumber)
+                    put("workType", item.workType)
+                }
+                arr.put(obj)
+            }
+            workersFile.writeText(arr.toString(4))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
-    suspend fun insertIncome(income: Income) = db.incomeDao().insertIncome(income)
-    suspend fun updateIncome(income: Income) = db.incomeDao().updateIncome(income)
-    suspend fun deleteIncome(incomeId: Int) = db.incomeDao().deleteIncomeById(incomeId)
+    private fun loadAttendance() {
+        val list = mutableListOf<Attendance>()
+        try {
+            if (attendanceFile.exists()) {
+                val s = attendanceFile.readText()
+                if (s.isNotBlank()) {
+                    val arr = JSONArray(s)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            Attendance(
+                                id = obj.optInt("id"),
+                                date = obj.optLong("date"),
+                                workerId = obj.optInt("workerId"),
+                                wage = obj.optDouble("wage"),
+                                paidStatus = obj.optBoolean("paidStatus")
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _attendanceState.value = list
+    }
 
-    suspend fun insertSettings(settings: AppSettings) = db.settingsDao().insertSettings(settings)
+    private fun saveAttendance(list: List<Attendance>) {
+        try {
+            _attendanceState.value = list
+            val arr = JSONArray()
+            for (item in list) {
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("date", item.date)
+                    put("workerId", item.workerId)
+                    put("wage", item.wage)
+                    put("paidStatus", item.paidStatus)
+                }
+                arr.put(obj)
+            }
+            attendanceFile.writeText(arr.toString(4))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
-    // BACKUP & RESTORE UTILITIES
+    private fun loadIncome() {
+        val list = mutableListOf<Income>()
+        try {
+            if (incomeFile.exists()) {
+                val s = incomeFile.readText()
+                if (s.isNotBlank()) {
+                    val arr = JSONArray(s)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            Income(
+                                id = obj.optInt("id"),
+                                cropId = obj.optInt("cropId"),
+                                quantity = obj.optDouble("quantity"),
+                                unit = obj.optString("unit"),
+                                rate = obj.optDouble("rate"),
+                                buyerName = obj.optString("buyerName"),
+                                saleDate = obj.optLong("saleDate"),
+                                amount = obj.optDouble("amount")
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _incomeState.value = list
+    }
+
+    private fun saveIncome(list: List<Income>) {
+        try {
+            _incomeState.value = list
+            val arr = JSONArray()
+            for (item in list) {
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("cropId", item.cropId)
+                    put("quantity", item.quantity)
+                    put("unit", item.unit)
+                    put("rate", item.rate)
+                    put("buyerName", item.buyerName)
+                    put("saleDate", item.saleDate)
+                    put("amount", item.amount)
+                }
+                arr.put(obj)
+            }
+            incomeFile.writeText(arr.toString(4))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadSettings() {
+        try {
+            if (settingsFile.exists()) {
+                val s = settingsFile.readText()
+                if (s.isNotBlank()) {
+                    val obj = JSONObject(s)
+                    _settingsState.value = AppSettings(
+                        id = obj.optInt("id", 1),
+                        preferredLanguage = obj.optString("preferredLanguage", "en"),
+                        darkMode = obj.optBoolean("darkMode", false),
+                        currencySymbol = obj.optString("currencySymbol", "₹")
+                    )
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        _settingsState.value = AppSettings()
+    }
+
+    private fun saveSettings(sObj: AppSettings?) {
+        try {
+            _settingsState.value = sObj ?: AppSettings()
+            if (sObj == null) {
+                if (settingsFile.exists()) settingsFile.delete()
+            } else {
+                val obj = JSONObject().apply {
+                    put("id", sObj.id)
+                    put("preferredLanguage", sObj.preferredLanguage)
+                    put("darkMode", sObj.darkMode)
+                    put("currencySymbol", sObj.currencySymbol)
+                }
+                settingsFile.writeText(obj.toString(4))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun insertUser(user: User) {
+        saveUser(user)
+    }
+
+    suspend fun deleteUser(user: User) {
+        saveUser(null)
+    }
+
+    suspend fun insertFarm(farm: Farm) {
+        val list = _farmsState.value.toMutableList()
+        val newId = if (farm.id == 0) {
+            if (list.isEmpty()) 1 else (list.maxOf { it.id } + 1)
+        } else {
+            farm.id
+        }
+        list.add(farm.copy(id = newId))
+        saveFarms(list)
+    }
+
+    suspend fun updateFarm(farm: Farm) {
+        val list = _farmsState.value.map { if (it.id == farm.id) farm else it }
+        saveFarms(list)
+    }
+
+    suspend fun deleteFarm(farmId: Int) {
+        val list = _farmsState.value.filter { it.id != farmId }
+        saveFarms(list)
+    }
+
+    suspend fun insertCrop(crop: Crop) {
+        val list = _cropsState.value.toMutableList()
+        val newId = if (crop.id == 0) {
+            if (list.isEmpty()) 1 else (list.maxOf { it.id } + 1)
+        } else {
+            crop.id
+        }
+        list.add(crop.copy(id = newId))
+        saveCrops(list)
+    }
+
+    suspend fun updateCrop(crop: Crop) {
+        val list = _cropsState.value.map { if (it.id == crop.id) crop else it }
+        saveCrops(list)
+    }
+
+    suspend fun deleteCrop(cropId: Int) {
+        val list = _cropsState.value.filter { it.id != cropId }
+        saveCrops(list)
+    }
+
+    suspend fun insertExpense(expense: Expense) {
+        val list = _expensesState.value.toMutableList()
+        val newId = if (expense.id == 0) {
+            if (list.isEmpty()) 1 else (list.maxOf { it.id } + 1)
+        } else {
+            expense.id
+        }
+        list.add(expense.copy(id = newId))
+        saveExpenses(list)
+    }
+
+    suspend fun updateExpense(expense: Expense) {
+        val list = _expensesState.value.map { if (it.id == expense.id) expense else it }
+        saveExpenses(list)
+    }
+
+    suspend fun deleteExpense(expenseId: Int) {
+        val list = _expensesState.value.filter { it.id != expenseId }
+        saveExpenses(list)
+    }
+
+    suspend fun insertWorker(worker: Worker) {
+        val list = _workersState.value.toMutableList()
+        val newId = if (worker.id == 0) {
+            if (list.isEmpty()) 1 else (list.maxOf { it.id } + 1)
+        } else {
+            worker.id
+        }
+        list.add(worker.copy(id = newId))
+        saveWorkers(list)
+    }
+
+    suspend fun updateWorker(worker: Worker) {
+        val list = _workersState.value.map { if (it.id == worker.id) worker else it }
+        saveWorkers(list)
+    }
+
+    suspend fun deleteWorker(workerId: Int) {
+        val list = _workersState.value.filter { it.id != workerId }
+        saveWorkers(list)
+    }
+
+    suspend fun insertAttendance(attendance: Attendance) {
+        val list = _attendanceState.value.toMutableList()
+        val newId = if (attendance.id == 0) {
+            if (list.isEmpty()) 1 else (list.maxOf { it.id } + 1)
+        } else {
+            attendance.id
+        }
+        list.add(attendance.copy(id = newId))
+        saveAttendance(list)
+    }
+
+    suspend fun updateAttendance(attendance: Attendance) {
+        val list = _attendanceState.value.map { if (it.id == attendance.id) attendance else it }
+        saveAttendance(list)
+    }
+
+    suspend fun deleteAttendance(attendanceId: Int) {
+        val list = _attendanceState.value.filter { it.id != attendanceId }
+        saveAttendance(list)
+    }
+
+    suspend fun insertIncome(income: Income) {
+        val list = _incomeState.value.toMutableList()
+        val newId = if (income.id == 0) {
+            if (list.isEmpty()) 1 else (list.maxOf { it.id } + 1)
+        } else {
+            income.id
+        }
+        list.add(income.copy(id = newId))
+        saveIncome(list)
+    }
+
+    suspend fun updateIncome(income: Income) {
+        val list = _incomeState.value.map { if (it.id == income.id) income else it }
+        saveIncome(list)
+    }
+
+    suspend fun deleteIncome(incomeId: Int) {
+        val list = _incomeState.value.filter { it.id != incomeId }
+        saveIncome(list)
+    }
+
+    suspend fun insertSettings(settings: AppSettings) {
+        saveSettings(settings)
+    }
+
     suspend fun generateBackupJsonString(): String {
         val root = JSONObject()
 
         // User
+        val u = _userState.value
         val userArr = JSONArray()
-        db.userDao().getUser().collectFirst()?.let { u ->
+        if (u != null) {
             val uObj = JSONObject().apply {
                 put("id", u.id)
                 put("fullName", u.fullName)
@@ -320,7 +699,7 @@ class FarmCostRepository(private val db: AppDatabase) {
 
         // Farms
         val farmArr = JSONArray()
-        db.farmDao().getAllFarms().collectFirst()?.forEach { f ->
+        _farmsState.value.forEach { f ->
             val fObj = JSONObject().apply {
                 put("id", f.id)
                 put("name", f.name)
@@ -337,7 +716,7 @@ class FarmCostRepository(private val db: AppDatabase) {
 
         // Crops
         val cropArr = JSONArray()
-        db.cropDao().getAllCrops().collectFirst()?.forEach { c ->
+        _cropsState.value.forEach { c ->
             val cObj = JSONObject().apply {
                 put("id", c.id)
                 put("name", c.name)
@@ -353,7 +732,7 @@ class FarmCostRepository(private val db: AppDatabase) {
 
         // Expenses
         val expenseArr = JSONArray()
-        db.expenseDao().getAllExpenses().collectFirst()?.forEach { e ->
+        _expensesState.value.forEach { e ->
             val eObj = JSONObject().apply {
                 put("id", e.id)
                 put("date", e.date)
@@ -370,7 +749,7 @@ class FarmCostRepository(private val db: AppDatabase) {
 
         // Workers
         val workerArr = JSONArray()
-        db.workerDao().getAllWorkers().collectFirst()?.forEach { w ->
+        _workersState.value.forEach { w ->
             val wObj = JSONObject().apply {
                 put("id", w.id)
                 put("name", w.name)
@@ -383,7 +762,7 @@ class FarmCostRepository(private val db: AppDatabase) {
 
         // Attendance
         val attendanceArr = JSONArray()
-        db.attendanceDao().getAllAttendance().collectFirst()?.forEach { a ->
+        _attendanceState.value.forEach { a ->
             val aObj = JSONObject().apply {
                 put("id", a.id)
                 put("date", a.date)
@@ -397,7 +776,7 @@ class FarmCostRepository(private val db: AppDatabase) {
 
         // Income
         val incomeArr = JSONArray()
-        db.incomeDao().getAllIncome().collectFirst()?.forEach { inc ->
+        _incomeState.value.forEach { inc ->
             val iObj = JSONObject().apply {
                 put("id", inc.id)
                 put("cropId", inc.cropId)
@@ -413,8 +792,9 @@ class FarmCostRepository(private val db: AppDatabase) {
         root.put("income", incomeArr)
 
         // Settings
+        val s = _settingsState.value
         val settingsArr = JSONArray()
-        db.settingsDao().getSettings().collectFirst()?.let { s ->
+        if (s != null) {
             val sObj = JSONObject().apply {
                 put("id", s.id)
                 put("preferredLanguage", s.preferredLanguage)
@@ -432,36 +812,42 @@ class FarmCostRepository(private val db: AppDatabase) {
         return try {
             val root = JSONObject(jsonString)
 
-            // Dynamic clearing is safer to prevent conflict/duplicate PKs on restore.
-            // Let's clear database tables before restoration.
-            db.clearAllTables()
+            // Reset memory states
+            _userState.value = null
+            _farmsState.value = emptyList()
+            _cropsState.value = emptyList()
+            _expensesState.value = emptyList()
+            _workersState.value = emptyList()
+            _attendanceState.value = emptyList()
+            _incomeState.value = emptyList()
+            _settingsState.value = null
 
             // 1. User
             if (root.has("users")) {
                 val arr = root.getJSONArray("users")
-                for (i in 0 until arr.length()) {
-                    val oo = arr.getJSONObject(i)
-                    insertUser(
-                        User(
-                            id = oo.optInt("id", 1),
-                            fullName = oo.optString("fullName", "Farmer"),
-                            mobileNumber = oo.optString("mobileNumber", ""),
-                            village = oo.optString("village", ""),
-                            taluka = oo.optString("taluka", ""),
-                            district = oo.optString("district", ""),
-                            state = oo.optString("state", ""),
-                            preferredLanguage = oo.optString("preferredLanguage", "en")
-                        )
+                if (arr.length() > 0) {
+                    val oo = arr.getJSONObject(0)
+                    val u = User(
+                        id = oo.optInt("id", 1),
+                        fullName = oo.optString("fullName", "Farmer"),
+                        mobileNumber = oo.optString("mobileNumber", ""),
+                        village = oo.optString("village", ""),
+                        taluka = oo.optString("taluka", ""),
+                        district = oo.optString("district", ""),
+                        state = oo.optString("state", ""),
+                        preferredLanguage = oo.optString("preferredLanguage", "en")
                     )
+                    saveUser(u)
                 }
             }
 
             // 2. Farms
+            val farmsList = mutableListOf<Farm>()
             if (root.has("farms")) {
                 val arr = root.getJSONArray("farms")
                 for (i in 0 until arr.length()) {
                     val oo = arr.getJSONObject(i)
-                    insertFarm(
+                    farmsList.add(
                         Farm(
                             id = oo.optInt("id", 0),
                             name = oo.optString("name", ""),
@@ -475,13 +861,15 @@ class FarmCostRepository(private val db: AppDatabase) {
                     )
                 }
             }
+            saveFarms(farmsList)
 
             // 3. Crops
+            val cropsList = mutableListOf<Crop>()
             if (root.has("crops")) {
                 val arr = root.getJSONArray("crops")
                 for (i in 0 until arr.length()) {
                     val oo = arr.getJSONObject(i)
-                    insertCrop(
+                    cropsList.add(
                         Crop(
                             id = oo.optInt("id", 0),
                             name = oo.optString("name", ""),
@@ -494,13 +882,15 @@ class FarmCostRepository(private val db: AppDatabase) {
                     )
                 }
             }
+            saveCrops(cropsList)
 
             // 4. Expenses
+            val expensesList = mutableListOf<Expense>()
             if (root.has("expenses")) {
                 val arr = root.getJSONArray("expenses")
                 for (i in 0 until arr.length()) {
                     val oo = arr.getJSONObject(i)
-                    insertExpense(
+                    expensesList.add(
                         Expense(
                             id = oo.optInt("id", 0),
                             date = oo.optLong("date", System.currentTimeMillis()),
@@ -514,13 +904,15 @@ class FarmCostRepository(private val db: AppDatabase) {
                     )
                 }
             }
+            saveExpenses(expensesList)
 
             // 5. Workers
+            val workersList = mutableListOf<Worker>()
             if (root.has("workers")) {
                 val arr = root.getJSONArray("workers")
                 for (i in 0 until arr.length()) {
                     val oo = arr.getJSONObject(i)
-                    insertWorker(
+                    workersList.add(
                         Worker(
                             id = oo.optInt("id", 0),
                             name = oo.optString("name", ""),
@@ -530,13 +922,15 @@ class FarmCostRepository(private val db: AppDatabase) {
                     )
                 }
             }
+            saveWorkers(workersList)
 
             // 6. Attendance
+            val attendanceList = mutableListOf<Attendance>()
             if (root.has("attendance")) {
                 val arr = root.getJSONArray("attendance")
                 for (i in 0 until arr.length()) {
                     val oo = arr.getJSONObject(i)
-                    insertAttendance(
+                    attendanceList.add(
                         Attendance(
                             id = oo.optInt("id", 0),
                             date = oo.optLong("date", System.currentTimeMillis()),
@@ -547,13 +941,15 @@ class FarmCostRepository(private val db: AppDatabase) {
                     )
                 }
             }
+            saveAttendance(attendanceList)
 
             // 7. Income
+            val incomeList = mutableListOf<Income>()
             if (root.has("income")) {
                 val arr = root.getJSONArray("income")
                 for (i in 0 until arr.length()) {
                     val oo = arr.getJSONObject(i)
-                    insertIncome(
+                    incomeList.add(
                         Income(
                             id = oo.optInt("id", 0),
                             cropId = oo.optInt("cropId", 0),
@@ -567,20 +963,20 @@ class FarmCostRepository(private val db: AppDatabase) {
                     )
                 }
             }
+            saveIncome(incomeList)
 
             // 8. Settings
             if (root.has("settings")) {
                 val arr = root.getJSONArray("settings")
-                for (i in 0 until arr.length()) {
-                    val oo = arr.getJSONObject(i)
-                    insertSettings(
-                        AppSettings(
-                            id = oo.optInt("id", 1),
-                            preferredLanguage = oo.optString("preferredLanguage", "en"),
-                            darkMode = oo.optBoolean("darkMode", false),
-                            currencySymbol = oo.optString("currencySymbol", "₹")
-                        )
+                if (arr.length() > 0) {
+                    val oo = arr.getJSONObject(0)
+                    val s = AppSettings(
+                        id = oo.optInt("id", 1),
+                        preferredLanguage = oo.optString("preferredLanguage", "en"),
+                        darkMode = oo.optBoolean("darkMode", false),
+                        currencySymbol = oo.optString("currencySymbol", "₹")
                     )
+                    saveSettings(s)
                 }
             }
 
@@ -589,10 +985,5 @@ class FarmCostRepository(private val db: AppDatabase) {
             ex.printStackTrace()
             false
         }
-    }
-
-    // Helper to get raw snapshot of flow once
-    private suspend fun <T> Flow<T>.collectFirst(): T? {
-        return this.firstOrNull()
     }
 }

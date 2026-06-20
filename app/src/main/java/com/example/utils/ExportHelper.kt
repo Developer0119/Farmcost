@@ -649,22 +649,36 @@ object ExportHelper {
     // ==========================================
     fun backupSqliteDb(context: Context): File? {
         try {
-            val dbFile = context.getDatabasePath("farm_cost_database")
-            if (dbFile.exists()) {
-                val backupFile = File(context.cacheDir, "FarmCost_Backup_${SimpleDateFormat("dd_MMM_yyyy", Locale.getDefault()).format(Date())}.db")
-                dbFile.inputStream().use { input ->
-                    backupFile.outputStream().use { output ->
-                        input.copyTo(output)
+            val dataFolder = File(context.getExternalFilesDir(null), "FarmCost AI")
+            if (dataFolder.exists() && dataFolder.isDirectory) {
+                val backupZipFile = File(context.cacheDir, "FarmCost_JSON_Backup_${SimpleDateFormat("dd_MMM_yyyy", Locale.getDefault()).format(Date())}.zip")
+                val zipOut = ZipOutputStream(FileOutputStream(backupZipFile))
+                
+                val files = dataFolder.listFiles() ?: emptyArray()
+                var addedCount = 0
+                for (file in files) {
+                    if (file.isFile && file.name.endsWith(".json")) {
+                        zipOut.putNextEntry(ZipEntry(file.name))
+                        file.inputStream().use { input ->
+                            input.copyTo(zipOut)
+                        }
+                        zipOut.closeEntry()
+                        addedCount++
                     }
                 }
-                shareFile(context, backupFile, "application/x-sqlite3", "App Database Binary")
-                return backupFile
+                zipOut.close()
+                if (addedCount > 0) {
+                    shareFile(context, backupZipFile, "application/zip", "FarmCost AI JSON Sheets Package")
+                    return backupZipFile
+                } else {
+                    Toast.makeText(context, "No physical JSON data files found to back up!", Toast.LENGTH_SHORT).show()
+                }
             } else {
-                Toast.makeText(context, "DB Database does not exist yet!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "FarmCost AI data folder does not exist yet!", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(context, "DB Binary replication fails: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "JSON package backup failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
         return null
     }

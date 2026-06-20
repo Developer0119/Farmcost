@@ -1989,18 +1989,18 @@ fun ReportsScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // SQLite DB Backup
+                                    // JSON Sheets Backup
                                     Button(
                                         onClick = {
                                             coroutineScope.launch {
                                                 val file = com.example.utils.ExportHelper.backupSqliteDb(context)
                                                 if (file != null) {
                                                     generatedFile = file
-                                                    fileMimeType = "application/x-sqlite3"
+                                                    fileMimeType = "application/zip"
                                                     successAlertMessage = label(
-                                                        "SQLite database file backup created.",
-                                                        "एसक्यूलाइट बाइनरी डेटाबेस सुरक्षित रूप से क्लोन किया गया।",
-                                                        "एसक्यूलाइट डेटाबेस यशस्वीरित्या क्लोन झाला आहे."
+                                                        "JSON physical files backup created successfully.",
+                                                        "भौतिक JSON फ़ाइलों का बैकअप सफलतापूर्वक बनाया गया।",
+                                                        "भौतिक JSON फायलींचा बॅकअप यशस्वीरित्या तयार झाला."
                                                     )
                                                 }
                                             }
@@ -2012,10 +2012,10 @@ fun ReportsScreen(
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
-                                        Icon(Icons.Filled.Storage, contentDescription = "DB Backup")
+                                        Icon(Icons.Filled.FolderZip, contentDescription = "JSON Backup")
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = label("Backup DB", "डेटाबेस बैकअप", "डेटाबेस बॅकअप"),
+                                            text = label("Backup JSONs", "फ़ाइलें बैकअप", "फायली बॅकअप"),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp
                                         )
@@ -2319,35 +2319,6 @@ fun SettingsScreen(
                             modifier = Modifier.testTag("switch_dark_mode")
                         )
                     }
-                }
-            }
-        }
-
-        // Custom Secure API Key input
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(2.dp)
-            ) {
-                var localApiKey by remember { mutableStateOf("") }
-                LaunchedEffect(Unit) {
-                    localApiKey = viewModel.userProposedApiKey.value
-                }
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "Custom Gemini API Key Override", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(text = "Leave empty to use AI Studio system credentials", fontSize = 11.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    TextField(
-                        value = localApiKey,
-                        onValueChange = {
-                            localApiKey = it
-                            viewModel.setCustomApiKey(it)
-                        },
-                        placeholder = { Text("API Key...") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = TextFieldDefaults.colors()
-                    )
                 }
             }
         }
