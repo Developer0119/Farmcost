@@ -23,7 +23,7 @@ object ExportHelper {
     private fun getShareUri(context: Context, file: File): Uri {
         return FileProvider.getUriForFile(
             context,
-            "com.example.fileprovider",
+            context.packageName + ".fileprovider",
             file
         )
     }

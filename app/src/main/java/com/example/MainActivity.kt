@@ -2137,7 +2137,7 @@ fun ReportsScreen(
                     // Open Button
                     Button(
                         onClick = {
-                            val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", generatedFile!!)
+                            val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", generatedFile!!)
                             val openIntent = Intent(Intent.ACTION_VIEW).apply {
                                 setDataAndType(uri, fileMimeType)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -2160,7 +2160,7 @@ fun ReportsScreen(
                     // Share Button
                     Button(
                         onClick = {
-                            val uri = FileProvider.getUriForFile(context, "com.example.fileprovider", generatedFile!!)
+                            val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", generatedFile!!)
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = fileMimeType
                                 putExtra(Intent.EXTRA_STREAM, uri)
