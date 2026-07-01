@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,6 +39,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.*
 import com.example.ui.Translations
@@ -482,26 +485,37 @@ fun DashboardScreen(
         // Welcome Banner
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(2.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = "🌾 " + t("app_name") + " - " + t("profile"),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                Column {
+                    Image(
+                        painter = painterResource(id = R.drawable.farm_banner),
+                        contentDescription = "Farm Banner",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp),
+                        contentScale = ContentScale.Crop
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Simultaneously tracking dynamic farm expenses and seasonal crop yields live.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "🌾 " + t("app_name") + " - " + t("profile"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Simultaneously tracking dynamic farm expenses and seasonal crop yields live.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    }
                 }
             }
         }
@@ -546,7 +560,7 @@ fun DashboardScreen(
                         }
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -604,7 +618,7 @@ fun DashboardScreen(
                         modifier = Modifier.weight(1f),
                         label = t("add_expense"),
                         color = Color(0xFFC62828),
-                        icon = Icons.Filled.CallMade,
+                        icon = Icons.AutoMirrored.Filled.CallMade,
                         onClick = onAddExpense,
                         testTag = "btn_add_expense_quick"
                     )
@@ -612,7 +626,7 @@ fun DashboardScreen(
                         modifier = Modifier.weight(1f),
                         label = t("add_sale"),
                         color = Color(0xFF2E7D32),
-                        icon = Icons.Filled.CallReceived,
+                        icon = Icons.AutoMirrored.Filled.CallReceived,
                         onClick = onAddIncome,
                         testTag = "btn_add_sale_quick"
                     )
@@ -1975,7 +1989,7 @@ fun ReportsScreen(
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
-                                        Icon(Icons.Filled.List, contentDescription = "CSV")
+                                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "CSV")
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = label("CSV Table", "सीएसवी", "सीएसवी"),
@@ -2385,15 +2399,23 @@ fun EmptyStatePrompt(t: (String) -> String) {
         Icon(
             imageVector = Icons.Filled.WaterDrop,
             contentDescription = "Empty",
-            tint = Color.LightGray,
-            modifier = Modifier.size(64.dp)
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+            modifier = Modifier.size(72.dp)
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = t("empty_state"),
             textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color.Gray
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "No records found. Tap the '+' button or use the Quick Actions on the dashboard to register your farms, crops, expenses, or income records.",
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
         )
     }
 }
@@ -2954,7 +2976,7 @@ fun FarmsLedgerSection(
                         Spacer(modifier = Modifier.height(8.dp))
                         val ratio = if (totInc + totExp > 0) (totInc / (totInc + totExp)).toFloat() else 0.5f
                         LinearProgressIndicator(
-                            progress = ratio,
+                            progress = { ratio },
                             modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                             color = Color(0xFF2E7D32),
                             trackColor = Color(0xFFC62828)
@@ -3078,7 +3100,7 @@ fun CropsLedgerSection(
                         Spacer(modifier = Modifier.height(8.dp))
                         val ratio = if (totInc + totExp > 0) (totInc / (totInc + totExp)).toFloat() else 0.5f
                         LinearProgressIndicator(
-                            progress = ratio,
+                            progress = { ratio },
                             modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                             color = Color(0xFF2E7D32),
                             trackColor = Color(0xFFC62828)
